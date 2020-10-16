@@ -1,0 +1,337 @@
+---
+title: "Determinantes dos Crimes nos Municípios do Rio de Janeiro"
+author: "Lucas Santos Leal"
+date: "12/10/2020"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+header-includes: \usepackage{setspace}\onehalfspacing
+geometry: margin=1in
+fontsize: 12pt
+fig_caption: yes
+bibliography: bib_1.bib
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+
+if(!require(papeR)) install.packages('paperR'); require(paperR)
+if(!require(tidyverse)) install.packages('tidyverse'); require(tidyverse)
+if(!require(PerformanceAnalytics)){install.packages("PerformanceAnalytics")};require(PerformanceAnalytics)
+if(!require(GGally)){install.packages("GGally")};require(GGally)
+if(!require(ggplot2)){install.packages("ggplot2")};require(ggplot2)
+if(!require(XML)){install.packages("XML")};require(XML)
+if(!require(summarytools)){install.packages("summarytools")};require(summarytools)
+if(!require(margins)){install.packages("margins")};require(margins)
+
+options(scipen = 9999)
+
+## Inicialização dos dados
+
+link_gini <- "http://tabnet.datasus.gov.br/cgi/ibge/censo/cnv/ginibr.def" ### 2010
+link_isp <- "http://www.ispdados.rj.gov.br/Arquivos/BaseMunicipioMensal.csv"
+
+banco_isp <- read.csv(link_isp, header = TRUE, sep = ';')
+banco_isp_1 <- banco_isp %>% filter(ano == 2019 & fmun != 'Teresópolis' & fmun !=  'São José do Vale do Rio Preto') %>%
+  group_by(fmun, ano, regiao) %>%
+  select(fmun_cod,
+         fmun,
+         ano, 
+         regiao, 
+         hom_doloso, 
+         total_roubos, 
+         indicador_cvli,
+         apreensao_drogas, 
+         posse_drogas,
+         trafico_drogas) %>%
+  summarise(hom_doloso = sum(hom_doloso),
+            apreensao_drogas = sum(apreensao_drogas),
+            posse_drogas = sum(posse_drogas),
+            trafico_drogas = sum(trafico_drogas),
+            roubos = sum(total_roubos)) %>%
+  data.frame()
+
+
+banco_ibge <- readxl::read_xlsx('~/Estudo/Mestrado/analise de dados/Projeto Final/dados_2/dados_socioeconomicos_rj.xlsx', na = 'NA') %>%
+  separate(., col = 2, into = 'cod_mun', remove = TRUE, sep = 6) %>% na.exclude()
+
+banco_gini <- readHTMLTable(link_gini)
+banco_gini_1 <- data_frame(banco_gini[[1]]) %>% select(-c(2,3)) %>%
+  rename(., fmun = 1) %>% separate(.,col = 1,into = c('cod_mun', 'fmun'), sep = 6) %>%
+  subset(., cod_mun %in% banco_ibge$cod_mun) %>% filter('cod_mun'!= 3305158 & 'cod_mun'!=  3305802)
+
+
+banco_final <- banco_ibge %>%
+  filter(fmun %in% banco_isp$fmun) %>% 
+  arrange(fmun) %>% cbind(banco_isp_1, banco_gini_1)
+
+```
+
+
+## Introdução
+  A redução dos índices de criminalidade é uma das principais tarefas do poder público em um tópico de grande interesse para a sociedade. O tema é ainda mais importante em países como o Brasil, que possuem características como desigualdade, altas taxas de desemprego e baixa escolaridade, que favorecem a ocorrência de crimes. A relevância do tópico exige a elaboração de pesquisas para sustentar a elaboração e implementação de políticas públicas. Nesse sentido, este trabalho avalia brevemente a situação da criminalidade nos municípios do Rio de Janeiro.
+
+  Em 2018, ocorreram aproximadamente 58 mil homicídios, no Brasil (27,8 mortes por 100 mil habitantes) [@ipea__2020]. Esse número representou uma queda de 12\% em comparação com 2017 (ano em que ocorreram 65,6 mil assassinatos), mas ainda reflete o elevado patamar em que o país se encontra em comparação com o restante do mundo. Em 2016, por exemplo, o Brasil ocupava a oitava posição entre os países com as maiores taxas de assassinato (UNODC, 2019).
+
+  Nos estados brasileiros, a violência é maior no Norte e Nordeste, regiões que apresentaram, em 2018, leve queda na tendência de crescimento dos últimos 10 anos da série, mas uma queda menos expressiva que as outras regiões do país, diferença parcialmente explicada pela guerra entre facções no sistema penintenciário [@ipea__2020]. Naquele ano, os três estados mais violentos (e suas taxas por 100 mil habitantes)  foram Roraima (71,8), Pará (53,2) e Ceará (54). Já os menos violentos foram São Paulo (8,2), Santa Catarina (11,9) e Minas Gerais (16).
+
+  O estado do Rio de Janeiro, de interesse desse trabalho, não se encontra entre os mais violentos quando comparadas as taxas de homicídios, mas é um caso relevante para o país por conta da presença marcante do crime organizado, mais precisamente no tráfico de drogas.As taxas de homicídio no Rio apresentaram uma tendência favorável entre 2007 e 2012, chegando ao nível mais baixo dos últimos dez anos (29,4 homicídios por 100 mil) neste último ano. No entanto, após 2012, as taxas de violência tornaram a crescer, chegando a 38,4 em 2017, colocando-o em primeiro lugar na região Sudeste e em 13º no país [@ipea__2020]. No estado, as maiores taxas de homicídios em 2018 ocorreram na região da Baixada Fluminense (56,2 por 100 mil). Na região da Grande Niterói foi observada a segunda maior taxa: 44 por 100 mil, seguida pelo interior com 37, e pela capital com 30,2.
+
+  A literatura é extensa no tratamento do assunto da criminalidade. São diversos os fenômenos que estão relacionados com a ocorrência de assassinatos, roubos, sequestros, entre outros crimes. Desde a existência de uma rede de crime organizado na região, desigualdades econômicas locais e baixa escolaridade da população, a ausência de policiamento e sistemas que falham em punir transgressores, diversos fatores influenciam as ações individuais dos criminosos e das vítimas, e também a ação estrutural e institucional.
+
+  Este trabalho seguirá o exposto por [@cerulli_economic_nodate; @dos_anjos_junior_determinantes_2018], que analisam fatores postos pela literatura como determinantes do crime, replicando suas variáveis explicativas (com algumas alterações operacionais devido à disponibilidade de dados). O objetivo do trabalho é identificar de que forma variáveis socioeconômicas e criminais estão associadas aos crimes nos municípios do estado do Rio de Janeiro, mais especificamente homicídios e roubos. A identificação de padrões municipais pode ser útil na elaboração de políticas públicas localizadas.
+
+
+## Marco Teórico
+  Diversos são os estudos que buscam compreender os determinantes de crimes[@cerqueira_determinantes_2004;@wolpin_economic_1978;@soares_development_2004]. Dada a existência de um grande número de tipos criminais, os motivos que os causam também são vários. Ainda, há um grande número de disciplinas interessadas nas causas de crimes, assim como nos padrões de distribuição dos eventos. Podem ser avaliados fatores psicológicos, individuais, ou mesmo fatores sociais econômicos que atuam de forma estrutural. Os diferentes pontos de vista muitas vezes utilizam as mesmas variáveis, algumas delas são educação, renda, desigualdade e presença de um aparato institucional consolidado. Esta seção faz um breve apanhado das principais vertentes teóricas existentes.
+
+  [@cerqueira_determinantes_2004] revisaram a literatura teórica e algumas explicações se destacam. A primeira é a teoria da desorganização social. Para essa vertente, as comunidades têm papel fundamental na determinação dos crimes, pois são parte essencial da socialização dos indivíduos. Seguindo a teoria de Shaw e McKay, Sampson e Groves (1989) identificaram que nas comunidades inglesas caracterizadas por redes dispersas de relacionamento, grupos de adolescentes não vigiados e pouca participação organizacional, as taxas de criminalidade eram mais elevadas. Além disso, que essas características estavam associadas a níveis socioeconômicos mais baixos, heterogeneidade étnica e estruturas familiares frágeis. Outros trabalhos acrescentam mobilidade residencial como fator explicativo, associando-a a maiores índices de criminalidade (Boggess e Hipp, 2010; Dugan, 1999). Além da desorganização social, os autores expõem a teoria do aprendizado social em que os indivíduos moldam seu comportamento de acordo com as suas experiências em situações de conflito; a teoria do controle social, que se baseia na ideia de que quanto maior a ligação entre o indivíduo e a sociedade, traduzida em suas crenças nos valores culturais e sociais, menor a probabilidade de que cometa crimes. Para a teoria, o agente crê nos valores sociais que condenam atitudes criminosas. Os transgressores são, portanto, pessoas sem amarras sociais [@cerqueira_determinantes_2004].
+
+  Uma das teorias de maior repercussão é a da escolha racional. Iniciada por Gary Becker, em 1968, a abordagem passou a utilizar modelos formais de avaliação de custos e benefícios econômicos da atitude criminosa [@cerqueira_determinantes_2004]. Com base nos pressupostos econômicos de racionalidade, a escolha de agir fora da lei teria como base fundamentos puramente pecuniários [@becker_essays_1974]. O que se seguiu foi uma série de estudos com base nos determinantes econômicos do crime, inspirados na ideia de que a criminalidade funciona da mesma foram que o mercado, fornecendo informações que são avaliadas pelos indivíduos, ainda que inconscientemente, que formulam suas ações a partir disto, numa ótica de oferta e demanda.
+
+   @fajnzylber_what_2002apresentam um modelo na tentativa de explicar taxas nacionais de crimes, partindo dos pressupostos da escolha racional, mas de forma agregada. As variáveis explicativas do modelo utilizadas foram: (1) educação, que segundo o modelo, deve possuir efeito negativo na propensão a cometer crimes, devido às maiores expectativas de rendimento no mercado legal; (2) o passado criminal do agente, com efeito esperado negativo, considerando que o indivíduo com histórico criminal fica estigmatizado na população; (3) o nível e o crescimento da atividade econômica, que tem como efeito esperado a redução na taxa de criminalidade devido a maiores oportunidades no mercado de trabalho legal; (4) a existência de atividades criminais lucrativas como tráfico de drogas e de armas, com efeito esperado positivo; por fim (5) a força do sistema de polícia e de justiça, que reduz a expectativa de cometer crimes impunemente, assim como a possibilidade de penas sérias. Os resultados de seus modelos econométricos mostram que crescimento econômico (PIB), expectativa de ser preso, e severidade do sistema judicial têm impacto negativo nas taxas de criminalidade. Do outro lado, desigualdade econômica, taxas de criminalidade dos anos anteriores, existência de um mercado de drogas consolidado possuem efeitos positivos nas taxas.
+No Brasil, os trabalhos também possuem origens explicativas distintas. Os estudos brasileiros costumam utilizar variáveis macroeconômicas para explicar violência [@cerqueira_determinantes_2004]. Os resultados apontam para relações positivas entre crimes e taxa de urbanização, densidade demográfica, e desigualdade de renda . @soares_understanding_2010 identificam que três fatores relevantes estão associados com a alta incidência de crimes na América Latina: desigualdade de renda, presença policial e baixas taxas de encarceramento.
+
+  Outros estudos, notadamente[@buonanno_socioeconomic_nodate; @lochner_effect_2004] identificam a educação como fator importante no nível de criminalidade. É de se esperar que indivíduos que possuem maior acesso à educação acabam por ter maiores oportunidades além do crime, ou seja, o custo de oportunidade da ação criminosa aumenta [@lochner_effect_2004]. Ainda na ótica da escolha racional, o indivíduo, ao considerar o tempo perdido na prisão, percebe que não é racional agir de forma a acarretar tal punição, reduzindo a propensão ao crime.
+
+Alguns estudos que analisam as características espaciais de fenômenos criminais. @anselin_spatial_1988 afirma que, de acordo com as teorias ecológicas, a distribuição de crimes é determinada pela interseção espacial entre agressores motivados, vítimas potenciais e a ausência de opressores de crimes.
+Essa situação pode ser potencializada ou atenuada de acordo com determinadas características ecológicas em dado local. Para os autores, dois fatores são fundamentais para facilitar ou inibir a ocorrência de crimes. Em primeiro lugar, características físicas de determinada localidade como prédios, casas abandonadas, espaços abertos, têm a capacidade de ampliar ou diminuir o controle social. Em segundo lugar, o espaço pode ser influenciado por atividades rotineiras, ou seja, áreas comerciais, estacionamentos, locais com grande quantidade de consumo de álcool, podem potencializar a ocorrência de delitos e violência (Anselin et. al. 2000, Cohen, Gorr, e Olligschlaeger, 1993). Locais onde há grandes vias de acesso também estão relacionados com uma presença maior de atividade criminosa (Ribeiro e Diniz, 2005)
+
+  [@dos_anjos_junior_determinantes_2018] incrementam a análise do crime adicionando a dimensão espacial aos seus modelos. Utilizando dados da região sudeste, os autores avaliam o impacto da densidade populacional, do PIB per capta, da taxa de desemprego, do índice de gini, da taxa de urbanização, da proporção de homens, da proporção de jovens e da taxa de analfabetismo. Os resultados encontrados foram que apenas o gini, a proporção de homens e a taxa de analfabetismo não tiveram valores significativos. Todas as variáveis significativas tiveram impacto positivo na taxa de homicídios por 100 mil habitatnes, com exceção da urbanização, que teve impacto significativo e negativo, de encontro com o esperado pela teoria.
+
+  Tomando como base o que foi exposto, este trabalho busca avaliar os determinantes da criminalidade. Em primeiro lugar, a educação aparece como fator explicativo relevante. Indivíduos que estudam acabam por ampliar suas oportunidades de empregabilidade e até mesmo de socialização, podendo portanto causar variações na criminalidade. Em segundo lugar, a renda aparece como variável explicativa. Em locais com maior acesso a renda e emprego, indivíduos têm menos motivos para entrar na atividade criminosa. Da ótica da escolha racional, caso o payoff de uma atividade criminosa seja menor que o de um trabalho, o indivíduo busca o trabalho, caso contrário, busca o crime. Outro fator utilizado para explicar a presença de criminalidade é a existência de um mercado do crime em determinado local que permita a uma pessoa iniciar a vida no crime mais rapidamente, novamente reduzindo os custos da atividade criminal. A densidade populacional também é um fator relevante, pois em locais com muitas pessoas, é seria mais difícil identificar criminosos do que em locais com baixa densindade, alta densidade também favorece a existência de locais aglomerados onde alguns crimes são mais fáceis de serem realizados. Por fim, a desigualdade econômica deve ser considerada, onde há maior desigualdade de renda, os indivíduos mais pobres têm menor acesso a bens do que os mais ricos do que em locais com menor desigualadade, o que pode favorecer a atitude criminosa.
+
+## Hipóteses
+A partir da teoria as seguintes hipóteses foram formuladas:
+
+1. Quanto maior o nível de educação de um município menor será a criminalidade;
+2. Quanto maior a densidade populacional de um município, maior será a criminalidade;
+3. Quanto maior a renda média dos trabalhadores, menor a criminalidade;
+4. Quanto maior o mercado de drogas em um município maiores serão as taxas de homicídio e de roubo;
+5. Quanto maior a desigualdade de renda maior a criminalidade;
+6. Quanto maior o desenvolvimento do município maior será o nível de criminalidade.
+
+As tabelas a seguir relacionam as variáveis e os sentidos causais esperados.
+```{r table2, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl <- "
+|Variáveis independentes       |      Fonte      | Ano |
+|---------------               | :-------------: | -------: |
+| Taxa de homicídios           |       ISP       | 2019 |
+| taxa de roubos               |       ISP       | 2019 | 
+| acima da média de homicídios |       ISP       | 2019 |
+| acima da média de roubos     |       ISP       | 2019 |
+"
+cat(tabl) 
+
+tabl <- "
+|Variável                 |Sentido esperado| Fonte |
+|---------------          |:-------------: |------:|
+| Densidade Populacional  |        +       | IBGE |
+|Renda média trabalhadores formais| -      | IBGE |
+| Índice de Gini          |        +       | IBGE |
+|      IDHM               |        -       | IBGE |
+| Nota IDEB               |        -       | IBGE |
+| Prisões por tráfico     |        +       | ISP  | 
+
+"
+cat(tabl) 
+
+```
+
+## Operacionalização e descrição das variáveis
+  As quatro variáveis independentes não estão nos bancos de dados originais. Portanto será necessário adicioná-las. Para calcular a taxa de homicídios e de roubos basta dividir o número de interesse pela população e multiplicar por 100 mil. Por fim, para computar se um estado está ou não acima da média, basta criar uma variável que assume os valores 0 quando o valor de interesse estiver abaixo da média e 1 quando estiver acima (categoria de referência). A variável independente de tráfico também será elaborada posteriormente considerando-se a taxa de prisões por tráfico por 100 mil habitantes.
+
+  A densidade demográfica é a razão entre população e área territorial do município. A renda média dos trabalhadores formais computa o salário médio dos trabalhadores de carteira assinada no município. Essa variável não é a mais adequada para verificar a renda dos trabalhadores do município, afinal grande parcela da população possui empregos informais. No entanto, é possível utilizá-la como proxy das diferenças entre as rendas municipais. Para verificar a desigualdade de renda, o índice de gini varia de 0 a 1, com valores mais próximos de zero correspondendo a situações de maior distribuição. O índice não considera os diferentes níveis de renda entre os municípios, ou seja, é possível que um município pobre possua uma distribuição igualitária. Para verificar o nível de desenvolvimento de um município será utilizado o índice de desenvolvimento humano municipal. Para verificar a relação entre crime e educação utilizarei as notas do IDEB municipal. É necessário observar que estes dados se referem às escolas públicas naquele município, o que exclui uma parcela da população. No entando, considerando as hipóteses de que a renda está associada com a criminalidade, é plausível considerar a variável relevante, já que a população mais pobre está mais representada nas escolas públicas. Por fim, para verificar a presença do tráfico de drogas será utilizada a variável taxa de prisões por tráfico por 100 mil habitantes.
+
+  Algumas observações finais merecem ser feitas. Uma das variáveis relevantes abordadas pela teoria não pode ser verificada neste estudo: a presença de um aparato policial forte. Considerando que a responsabilidade pela segurança pública local é em sua maior parte do nível estadual, não é comum encontrar dados como efetivo policial e gastos policiais por município, portanto este trabalho não ira testar hiopóteses relacionadas à força policial.
+
+```{r, include= FALSE}
+
+## taxas por 100 mil
+banco_final$taxa_hom <- (banco_final$hom_doloso/
+                           banco_final$Pop_estimada_2020)*100000
+
+banco_final$taxa_roubos <- (banco_final$roubos/
+                              banco_final$Pop_estimada_2020)*100000
+
+banco_final$trafico <- (banco_final$trafico_drogas/
+                              banco_final$Pop_estimada_2020)*100000
+
+## dummy acima da média
+banco_final$media_hom <- ifelse(banco_final$hom_doloso >= mean(banco_final$hom_doloso),
+                                1,0)
+banco_final$media_roubos <- ifelse(banco_final$roubos >= mean(banco_final$roubos),
+                                   1,0)
+```
+
+  Os dados utilizados neste trabalho são relativos aos 90 municípios do estado do Rio de Janeiro para que todas as variáveis estavam disponíveis. No total serão utilizadas 10 variáveis, das quais quatro são dependentes. A primeira variável independente será a taxa de homicídios por 100 mil habitantes, forma padrão nos estudos sobre violência. A segunda será taxa de roubos por 100 mil habitantes. O objetivo de utilizar taxas e não valores brutos é para controlar pela população, afinal, um local com muito mais habitantes não tem mais homicídios ou roubos que outro necessariamente, mas também por possuir mais pessoas. A utilização de taxas por 100 mil, no entanto, não é suficiente para controlar todos os problemas existentes. Um problema que surge é o dos municípios com população muito pequena. Como homicídios são eventos raros, é comum que em muitas cidades o número de pessoas assassinadas em um determinado ano seja zero, ou um número pequeno. Mas até mesmo pequenas variações no número absoluto, podem causar variações extremas na taxa. No caso de um ano com muitos homicídios, a alteração na taxa pode ser grande, dependendo da população, mas o evento pode ter ocorrido por causas aleatórias. As formas de evitar esse problema são a avaliação das tendências temporais, para verifiar qual em que direção o crime está indo ao longo do tempo para cada cidade, e a verificação das tendências espaciais, quando a taxa de homicídios em um lugar é ponderada pelas taxas das localidades vizinhas. Nenhum desses métodos será utilizado neste trabalho, pois fogem dos objetivos.
+
+  Esse problema ocorre também com roubos, mas em menor grau, considerando-se que não são eventos tão raros quando homicídios, o que permite uma variação maior, e melhor interpretação das taxas, ainda que quando baixas. Seguindo a teoria e as hipóteses elaboradas, as tabelas a seguir destacam as estatísticas descritivas das variáveis.
+```{r, echo=FALSE}
+variaveis <- banco_final[c('taxa_hom', 'taxa_roubos', 'media_hom', 'media_roubos',
+                           "Dens_dem_km_2_2010",'Ideb_rede_publica',
+                               "IDHM_2010", "PIB_percap_2017",
+                               "media_salarial_salarios_minimos", 'trafico')]
+
+descr(variaveis, transpose = TRUE, stats = c('mean', 'sd','min','max'),headings = FALSE)
+```
+
+  É relevante compreender a distribuição das variáveis utilizadas. Para tanto, a figura a seguir exemplifica as distribuições de frequência das variáveis independentes, assim como suas correlações entre si. A figura abaixo evidencia tais características.
+Alguns fatores merecem atenção. A correlação entre o IDHM e o log densidade demográfica foi de 0.52, significativa a nível de 0.5, valor considerado moderado. A relação era esperada, devido ao fato de as cidades com maior índice de desenvolvimento estarem situadads na região metropolitana do Rio de Janeiro, as quais possuem maior urbanização e população. Outra correlação que merece atenção ocorre entre as variáveis salário médio dos trabalhadores formais e o PIB per capta, que teve valor 0.6.No entanto, deve-se estar atento à possibilidade de multicolinearidade quando forem efetuadas as regressões, para isso, serão realizados os testes indicados, na seção metodologia. As outras correlações foram fracas ou próximas de zero. 
+
+```{r table, fig.width=15,fig.height=10, fig.cap="Tabela de correlação das variáveis indepdendentes"}
+
+independentes <- banco_final[c("Dens_dem_km_2_2010",'Ideb_rede_publica',
+                               "IDHM_2010", "PIB_percap_2017",
+                               "media_salarial_salarios_minimos", 'trafico')]
+
+independentes$Dens_dem_km_2_2010 <- log(independentes$Dens_dem_km_2_2010)
+independentes$Ideb_rede_publica <- as.numeric(independentes$Ideb_rede_publica)
+independentes$PIB_percap_2017 <- log(independentes$PIB_percap_2017)
+
+
+plot_1 <- ggpairs(independentes,lower = list(continuous = wrap("smooth", alpha = 0.3, size=1)), cardinality_threshold = 20)
+
+plot_1
+```
+
+## Modelos de regressão
+
+  Para testar as hipóteses elaboradas, será utilizado um modelo de regressão linear e um modelo de regressão logística. No primeiro caso, as variáveis dependentes serão a taxa de homicídios por cem mil habitantes e a taxa de roubos por cem mil habitantes. No segundo caso, as variáveis independentes serão o fato de um município específico estar ou não acima da taxa média de homicídios e de roubos. Ou seja, quatro modelos serão testados no total.
+
+  A regressão linear é utilizada para estimar uma relação linear entre as variáveis. A estrutura é a seguinte:
+$$Y = \alpha + \beta_1X + e$$
+
+em que $\alpha$ representa o termo constante do modelo, ou seja, o valor médio da variável dependente quando as variáveis independentes têm valor zero, $\beta$ indica o coeficiente linear do modelo, ou seja, a variação esperada em $Y$ para cada variação em $X$ (que representa a variável independente) e por fim o termo estocástico $e$ que absorve toda a variação que não for considerada pelas variáveis do modelo. Observe que o coeficiente de regressão é constante para todos os valores da variável independente, daí a natureza linear do modelo.
+
+  A utilização de um modelo de regressão linear requer a observação de uma série de pressupostos[@gujarati_econometria_2011; @james_introduction_2013; @wooldridge_introductory_2016]. Os mais relevantes para esse trabalho são:
+
+1. linearidade dos parâmetros;
+2. valor esperado do erro igual a zero (E[$e_i$|$X_i$] = 0);
+3. homoscedasticidade, ou seja, variância constante do erro (Var($e_i$|$X_i$) = $\sigma{^2}$);
+4. ausência de autocorrelação entre os erros (cov($e_i$,$e_j$|$X_i$,$X_j$) = 0);
+5. ausência de colinearidade perfeita.
+
+  O pressuposto da linearidade dos parâmetros não diz sobre a relação entre $Y$ e $X$ que pode ser não linear. Trata fundamentalmente da importância da interpretação dos coeficientes[@wooldridge_introductory_2016] que são constantes e refletem mudanças diretas em $Y$ baseadas em mudanças de $X$. Tal relação é constante ao longo dos valores de $X$, algo que não é verdadeiro para coeficientes não lineares.
+
+  Já o segundo pressuposto, da esperança do erro ser igual a zero se refere à característica estocástica do erro em um modelo bem especificado. O erro representa tudo aquilo que não está explicitado no modelo e deve eliminar, de preferência, quaisquer elementos sistemáticos que possam explicar a variação de $Y$. Se a média condicional dos erros é zero, para determinados valores de $X$, a diferença entre o valor estimado e o valor real de $Y$ é, em média, zero. 
+
+  A homoscedasticidade está relacionada com a variância do erro, que deve ser constante ao para determinados valores das variáveis independentes. A heteroscedasticidade ocorre justamente quando a variância dos erros não é constante. A heteroscedasticidade não causa viés na estimativa, mas aumenta a incerteza no modelo, à medida que afeta os erros-padrão e as estatísticas de teste [@astivia_heteroskedasticity_nodate]. O teste de Breusch-Pagan é o mais utilizado para identificação da presença de heteroscedasticidade em um modelo linear. A ausência de autocorrelação, pressuposto 4, está associada à existência de fatores sistemáticos além de $X$ que influenciam a variável dependente. Quando os erros entre observações estão relacionados pode-se considerar que há fatores não aleatórios não considerados que estão associados a mudanças unitárias das variáveis. 
+
+  Por fim, a ausência de colinearidade perfeita, ou seja, a existência de multicolinearidade. O que se espera é que nenhuma variável explicativa seja uma combinação linear das outras, ou que não estejam fortemente associadas. O que a ruptura desse pressuposto implica é que a mesma parcela de variação de $Y$ está sendo explicada por dois fatores distintos (nominalmente). Esta redundância pode interferir no erro-padrão e também nas estimativas dos coeficientes. Os remédios são vários e podem depender da causa do problema.
+
+  O método de estimação da reta de regressão mais utilizado é o de mínimos quadrados ordinários. Este método busca minimizar a soma dos quadrados dos resíduos, ou $$argmin\sum ê_,^2 = argmin\sum (Y_i-\hat{Y_i}) $$. A estimativa por MQO é baseada nos pressupostos elucidados acima e caso sejam verdadeiras, o estimador $\hat{\beta}$ é o melhor estimador linear não viesado [@gujarati_econometria_2011]. A interpretação do output de um modelo de regressão será explicada na avaliação dos resultados deste trabalho.
+
+
+  O modelo de regressão logística tem como objetivo identificar a probabilidade de pertencimento a uma categoria [@james_introduction_2013]. Para isso é necessário que a variável dependente seja binária, com uma categoria de referência. É possível estimar uma regressão linear com a variável dependente binária, mas alguns problemas são comuns. O principal deles é o fato de que as estimativas das probabilidades podem estar além do intervalo (0,1), fato que é eliminado com o modelo logístico. A especificação do modelo é: para dados valores de $X$, a probabilidade de $Y$ assumir o valor 1 (categoria de refêrencia) é:
+
+$$p(Y=1|X) = \frac{e^z}{1+e^z} $$ para $$ z = \beta_0 + \beta_1 X $$
+A função logística é o link que assume valores entre zero e um. Através do método de máxima verossimilhança o modelo é estimado. A relação linear se encontra após algumas transformações que resultam no log da razão de probabilidades (\textit{odds ratio}):
+
+$$log(\frac{P(X)}{1-P(X)}) = log(e^z) = z =  \beta_0 + \beta_1 X$$
+  Alguns pressupostos devem ser observados[@stoltzfus_logistic_2011]:
+
+1. Independencia dos erros;
+2. linearidade entre a razão de probabilidades e as variáveis independentes;
+3. Ausência de multicolinearidade;
+4. Ausência de outliers influentes.
+
+  A interpretação dos resultados de uma regressão logística também é diferente. Como o coeficiente da reta tangente a um determinado ponto da reta de regressão, o output do modelo não pode ser avaliado como a variação na probabilidade para uma mudança na variável independente. A interpretação deve considerar a razão de probabilidades (logits) para cada aumento unitário das variáveis independentes.
+
+## Metodologia
+
+Neste trabalho serão utilizadas os dois tipos de regressão acima expostos para testar as hipóteses. Primeiramente serão realizados dois modelos de regressão linear múlipla, um para cada variável dependente. Depois será realizada uma regressão logística para verificar a probabilidade de estar acima ou abaixo da média das variáveis dependentes. Por fim serão realizados os testes necessários para verificar os pressupostos. Os dois primeiros modelos assumirão a forma:
+
+$$taxahomicidio = \alpha + \beta_1.densidade + \beta_2.educação + \beta_3.IDHM\\ + \beta_4.Gini + \beta_5.tráfico + \beta_6.renda + e \quad (1)$$
+
+$$taxaroubos = \alpha + \beta_1.densidade + \beta_2.educação + \beta_3.IDHM +\\ \beta_4.Gini + \beta_5.tráfico + \beta_6.renda + e \quad (2)$$
+
+O último:
+$$
+\begin{aligned}
+log(\frac{P(X)}{1-P(X)}) = mediahomi = \alpha + \beta_1.densidade + \beta_2.educação + \beta_3.IDHM \\ + \beta_4.Gini + \beta_5.tráfico + \beta_6.renda + e \quad (3)
+\end{aligned}
+$$
+Os resultados estão exibidos abaixo. O primeiro modelo testou a variável dependente taxa de homicídios por 100 mil habitantes. Os resultados mostram que apenas a nota do IDEB e o log da densidade demográfica tiveram coeficientes estatísticamente diferentes de zero. Cada mudança percentual na densidade está associada a uma mudança de 2.5% na taxa de homicídios por 100 mil, conforme esperado. A relação com o IDEB também foi a esperada, que para cada variação unitária na nota do IDEB, a taxa de homicídios varia negativamente em 7.5 unidades. Embora não seus coeficientes não tenham sido significativos, as outras variáveis do modelo tiveram os sinais esperados, com exceção da renda média. O R2 ajustado do modelo foi de 12%, indicanto que o modelo ajusta este valor da variação da taxa de homicídios. Considerando que a média da variável dependente está em torno de 20, o erro padrão residual foi alto, 13.56.
+
+```{r, echo=FALSE, fig.width=10}
+### modelo 1
+modelo_taxa_hom <- lm(taxa_hom~log(Dens_dem_km_2_2010) +
+                as.numeric(Ideb_rede_publica) +
+                IDHM_2010 +
+                log(PIB_percap_2017) + 
+                trafico + 
+                media_salarial_salarios_minimos, data = banco_final)
+
+summary(modelo_taxa_hom)
+```
+A seguir foi realizado o teste de variância constante dos erros. Os gráficos mostram que não há indícios de heteroscedasticidade forte, apresentando uma distribuição aparentemente aleatória dos resíduos. O gráfico da distância de Cook também indica que não houve outliers muito influentes. Pra confirmar as expectativas, foi realizado um teste de Breusch-Pagan. O resultado mostra um p-valor elevado, indicando a impossibilidade de rejeição da hipótese nula de que a variância dos erros é constante. Ainda, o teste de autocorrelação indica que as observações são independentes. Por fim, o teste de VIF indica que não há multicolinearidade no modelo.
+
+```{r, echo=FALSE, fig.cap= "testes do modelo 1"}
+ncvTest(modelo_taxa_hom) #teste de homoscedasticidade
+
+par(mfrow = c(2,2))
+plot(modelo_taxa_hom)
+```
+```{r, echo=FALSE, fig.cap= "testes do modelo 1"}
+acf(modelo_taxa_hom$residuals) ## teste de autocorrelação
+vif(modelo_taxa_hom) ## teste de multicolinearidade
+
+```
+O próximo passo é interpretar o modelo com a variável dependente taxa de roubos por 100 mil habitantes. A princípio, o modelo possui três variáveis com coeficientes diferentes de zero: densidade demográfica, IDHM, e tráfico de drogas. Os sentidos são esperados para densidade e IDHM, quando maior a densidade, maior a taxa de roubos, quando maior o IDHM, menor é a taxa. Para tráfico, o coeficiente está no sentido contrário do esperado, quando mais prisões por tráfico, menos crimes foram registrados. O R2 é de 79% e o erro padrão 230.
+
+```{r, echo = FALSE, fig.width=10}
+### modelo 2
+modelo_taxa_roubos <- lm(taxa_roubos~log(Dens_dem_km_2_2010) +
+                as.numeric(Ideb_rede_publica) +
+                IDHM_2010 +
+                log(PIB_percap_2017) + 
+                media_salarial_salarios_minimos+ 
+                trafico, data = banco_final)
+
+
+summary(modelo_taxa_roubos)
+```
+Mas é necessário identificar se o modelo está de acordo com os pressupostos. Os gráficos de diagnóstico indicam a possibilidade de heteroscedasticidade, suspeita que é confirmada com o teste de variância constante, que tem p-valor significativo. Os outros testes, de multicolinearidade e de autocorrelação indicam que o modelo está de acordo com os pressupostos.
+```{r, echo=FALSE, fig.height=10, fig.width=10}
+ncvTest(modelo_taxa_roubos) #teste de homoscedasticidade
+
+par(mfrow = c(2,2))
+plot(modelo_taxa_roubos)
+
+vif(modelo_taxa_roubos) ## multicolinearidade
+
+```
+
+```{r}
+acf(modelo_taxa_roubos$residuals) ## autocorrelação
+```
+Por fim vamos avaliar o último modelo deste trabalho. Decidi não utilizar um modelo logístico para a variável taxa de roubos por conta do pequeno número de casos que seria atribuído a uma das categorias, dificultando a interpretação do modelo. Para a variável "acima da média de homicídios" PIB per capta, densidade e IDEB foram as variáveis significativas do modelo.
+A interpretação inicial dos resultados implica que mudanças de uma unidade da nota do IDEB geram mudanças de -3.15 no log das probabilidades. Já o PIB per capta está associado a uma mudança de 1.68% no log das probabilidades, para cada aumento percentual. A densidade demográfica está associada a um aumento de 0.95% no log das chances, para cada variação percentual.
+
+```{r,echo=FALSE}
+## modelo 3
+modelo_media_hom <-glm(media_hom~log(Dens_dem_km_2_2010) +
+                as.numeric(Ideb_rede_publica) +
+                IDHM_2010 +
+                log(PIB_percap_2017) +
+                trafico +
+                media_salarial_salarios_minimos,
+                data = banco_final, family = binomial(link = 'logit'))
+
+summary(modelo_media_hom)
+margins(modelo_media_hom)
+```
+```{r}
+## matriz de confusão
+preditas <- as.numeric(modelo_media_hom$fitted.values >= 0.5)
+caret::confusionMatrix(as.factor(banco_final$media_hom), as.factor(preditas))
+```
+A matriz de confusão fornece informações sobre a capacidade de previsão do modelo. A precisão do modelo foi de 90%, 7.2% maior do que um modelo que considere apenas os valores da variável dependente. Portanto as variáveis independentes ajudaram a gerar previsões mais precisas.
+                                                
+## Considerações Finais
+Este trabalho buscou avaliar que fatores determinam os homicídios e roubos nos município do Rio de Janeiro. Os resultados encontrados estão de acordo com a literatuda abordada. Quando avalidada a taxa de homicídios, foi identificado que educação, densidade demográfica têm impactos significativos. Para roubos, educação, IDHM e tráfico tiveram valores significantes, embora o resultado para tráfico tenha sido no sentido contrário ao esperado. Por fim, o modelo logístico utilizando as variáveis resultou numa capacidade de classificação entre municípios acima da média ou abaixo da média maior do que num modelo sem variáveis.
+Os resultados são interessantes, mas algumas ressalvas são importantes. Em primeiro lugar é necessário destacar que crimes são um evento naturalmente sazonais. Este efeito não foi avaliado neste trabalho, pois não fazia parte de sua proposta, mas certamente interfere na capacidade de interpretação dos resultados. Um modelo de dados em painel poderia considerar esses efeitos. Em segundo lugar, crimes apresentam padrões espaciais, e as taxas em uma localidade são por muitas vezes afetadas pelas localidades vizinhas, estes efeitos também não foram levados em consideração. Todas essas questões são relevantes e podem ser conferidas em trabalhos futuros, afinal há muito se conhecem os determinantes da criminalidade, no entando, as políticas públicas por muitas vezes falham em conseguir atingir seus objetivos de redução nos crimes. 
+
+# Referências
